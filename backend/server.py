@@ -141,6 +141,8 @@ class UserOut(BaseModel):
     address: str = ""
     delivery_instructions: str = ""
     payment_terms_days: int = 30
+    terms_accepted_at: Optional[datetime] = None
+    must_accept_terms: bool = False
 
 
 class RegisterIn(BaseModel):
@@ -298,7 +300,7 @@ class EdoSubmitIn(BaseModel):
     signer_name: str
     signature_data_url: str  # base64 data URL, PNG
     photo_urls: List[str]  # previously uploaded via /edo/photo
-    accepted_terms: bool
+    accepted_terms: bool = True  # kept for backwards compat; global acceptance covers it
 
 
 class CustomerPriceIn(BaseModel):
@@ -328,6 +330,7 @@ class SettingsOut(BaseModel):
     company_email: str
     company_address: str
     edo_terms_text: str
+    edo_terms_updated_at: Optional[datetime] = None
 
 
 class SettingsIn(BaseModel):
@@ -350,7 +353,24 @@ def _make_token(user_id: str, role: str) -> str:
     )
 
 
-def _user_public(doc: dict) -> UserOut:
+async def _current_settings() -> dict:
+    return await db.settings.find_one({"_id": "app"}) or {}
+
+
+def _must_accept_terms(user: dict, settings: dict) -> bool:
+    if user.get("role") != "customer":
+        return False
+    accepted = user.get("terms_accepted_at")
+    if not accepted:
+        return True
+    updated = settings.get("edo_terms_updated_at")
+    if not updated:
+        return False
+    return accepted < updated
+
+
+def _user_public(doc: dict, settings: Optional[dict] = None) -> UserOut:
+    settings = settings or {}
     return UserOut(
         id=str(doc["_id"]),
         email=doc["email"],
@@ -361,6 +381,8 @@ def _user_public(doc: dict) -> UserOut:
         address=doc.get("address", ""),
         delivery_instructions=doc.get("delivery_instructions", ""),
         payment_terms_days=int(doc.get("payment_terms_days", 30)),
+        terms_accepted_at=doc.get("terms_accepted_at"),
+        must_accept_terms=_must_accept_terms(doc, settings),
     )
 
 
@@ -746,11 +768,13 @@ async def register(body: RegisterIn):
         "name": body.name, "company": body.company, "phone": body.phone,
         "address": body.address, "delivery_instructions": body.delivery_instructions,
         "payment_terms_days": 30,
+        "terms_accepted_at": None,
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(doc)
     user = await db.users.find_one({"_id": result.inserted_id})
-    return TokenOut(access_token=_make_token(str(user["_id"]), user["role"]), user=_user_public(user))
+    settings = await _current_settings()
+    return TokenOut(access_token=_make_token(str(user["_id"]), user["role"]), user=_user_public(user, settings))
 
 
 @api.post("/auth/login", response_model=TokenOut)
@@ -765,12 +789,14 @@ async def login(body: LoginIn):
             valid = False
     if not user or not valid:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return TokenOut(access_token=_make_token(str(user["_id"]), user["role"]), user=_user_public(user))
+    settings = await _current_settings()
+    return TokenOut(access_token=_make_token(str(user["_id"]), user["role"]), user=_user_public(user, settings))
 
 
 @api.get("/auth/me", response_model=UserOut)
 async def get_me(user: Annotated[dict, Depends(current_user)]):
-    return _user_public(user)
+    settings = await _current_settings()
+    return _user_public(user, settings)
 
 
 @api.put("/auth/me", response_model=UserOut)
@@ -779,7 +805,17 @@ async def update_me(body: UserUpdateIn, user: Annotated[dict, Depends(current_us
     if updates:
         await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
     fresh = await db.users.find_one({"_id": user["_id"]})
-    return _user_public(fresh)
+    settings = await _current_settings()
+    return _user_public(fresh, settings)
+
+
+@api.post("/auth/accept-terms", response_model=UserOut)
+async def accept_terms(user: Annotated[dict, Depends(current_user)]):
+    now = datetime.now(timezone.utc)
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"terms_accepted_at": now}})
+    fresh = await db.users.find_one({"_id": user["_id"]})
+    settings = await _current_settings()
+    return _user_public(fresh, settings)
 
 
 # ============================================================================
@@ -1201,8 +1237,10 @@ async def submit_edo(order_id: str, body: EdoSubmitIn, cust: Annotated[dict, Dep
     if o.get("status") not in POST_DELIVERY_STATUSES and o.get("status") not in {"Dispatched", "Ready for Delivery"}:
         # Allow signing once the goods are on the way / delivered
         raise HTTPException(status_code=400, detail="Order is not yet ready to be signed")
-    if not body.accepted_terms:
-        raise HTTPException(status_code=400, detail="You must accept the terms")
+    # Ensure customer has accepted the current T&C globally
+    settings = await _current_settings()
+    if _must_accept_terms(cust, settings):
+        raise HTTPException(status_code=400, detail="Please accept the T&C on the home screen first")
     if not body.signer_name.strip():
         raise HTTPException(status_code=400, detail="Signer name is required")
     if not body.photo_urls:
@@ -1371,12 +1409,14 @@ async def admin_create_customer(body: CustomerCreateIn, admin: Annotated[dict, D
         "name": body.name, "company": body.company, "phone": body.phone,
         "address": body.address, "delivery_instructions": body.delivery_instructions,
         "payment_terms_days": int(body.payment_terms_days or 30),
+        "terms_accepted_at": None,
         "created_at": datetime.now(timezone.utc),
         "created_by_admin": admin["email"],
     }
     result = await db.users.insert_one(doc)
     user = await db.users.find_one({"_id": result.inserted_id})
-    return _user_public(user)
+    settings = await _current_settings()
+    return _user_public(user, settings)
 
 
 @api.get("/customers")
@@ -1771,6 +1811,127 @@ async def top_customers(
     return {"since": since.isoformat(), "months": months, "customers": out}
 
 
+@api.get("/admin/insights/products-sold")
+async def products_sold(
+    admin: Annotated[dict, Depends(require_admin)],
+    from_: Optional[str] = Query(None, alias="from"),
+    to_: Optional[str] = Query(None, alias="to"),
+):
+    """Aggregated per product+variation for a date range. Default: this month."""
+    if not from_ and not to_:
+        now = datetime.now(timezone.utc)
+        start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+        end = (start + timedelta(days=32)).replace(day=1)
+    else:
+        start, end = _parse_range(from_, to_)
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start, "$lt": end}, "status": {"$ne": "Cancelled"}}},
+        {"$unwind": "$items"},
+        {"$group": {
+            "_id": {"sku": "$items.sku", "variation": "$items.variation"},
+            "product_name": {"$first": "$items.product_name"},
+            "unit": {"$first": "$items.unit"},
+            "units": {"$sum": "$items.quantity"},
+            "revenue": {"$sum": "$items.line_total"},
+            "orders_count": {"$sum": 1},
+        }},
+        {"$sort": {"revenue": -1}},
+    ]
+    rows = []
+    total_units = 0
+    total_revenue = 0.0
+    async for r in db.orders.aggregate(pipeline):
+        units = int(r.get("units", 0))
+        revenue = round(float(r.get("revenue", 0.0)), 2)
+        total_units += units
+        total_revenue += revenue
+        rows.append({
+            "sku": r["_id"].get("sku", ""),
+            "variation": r["_id"].get("variation", ""),
+            "product_name": r.get("product_name", ""),
+            "unit": r.get("unit", ""),
+            "units": units,
+            "revenue": revenue,
+            "orders_count": int(r.get("orders_count", 0)),
+        })
+    return {
+        "from": start.isoformat(),
+        "to": (end - timedelta(microseconds=1)).isoformat(),
+        "total_units": total_units,
+        "total_revenue": round(total_revenue, 2),
+        "rows": rows,
+    }
+
+
+@api.get("/admin/insights/sales-monthly")
+async def sales_monthly(
+    admin: Annotated[dict, Depends(require_admin)],
+    months: int = 6,
+):
+    if months < 1: months = 1
+    if months > 24: months = 24
+    now = datetime.now(timezone.utc)
+    # Start of month N-1 months back
+    year, month = now.year, now.month
+    start_year, start_month = year, month
+    for _ in range(months - 1):
+        start_month -= 1
+        if start_month == 0:
+            start_month = 12; start_year -= 1
+    start = datetime(start_year, start_month, 1, tzinfo=timezone.utc)
+    pipeline = [
+        {"$match": {"created_at": {"$gte": start}, "status": {"$ne": "Cancelled"}}},
+        {"$group": {
+            "_id": {"y": {"$year": "$created_at"}, "m": {"$month": "$created_at"}},
+            "revenue": {"$sum": "$total_amount"},
+            "orders": {"$sum": 1},
+            "units": {"$sum": {"$sum": "$items.quantity"}},
+        }},
+    ]
+    bucket_map: Dict[str, Dict[str, Any]] = {}
+    async for r in db.orders.aggregate(pipeline):
+        key = f"{r['_id']['y']:04d}-{r['_id']['m']:02d}"
+        bucket_map[key] = {
+            "month": key,
+            "revenue": round(float(r.get("revenue", 0.0)), 2),
+            "orders": int(r.get("orders", 0)),
+            "units": int(r.get("units", 0) or 0),
+        }
+    # Fill in empty months
+    out = []
+    y, m = start_year, start_month
+    for _ in range(months):
+        key = f"{y:04d}-{m:02d}"
+        out.append(bucket_map.get(key, {"month": key, "revenue": 0.0, "orders": 0, "units": 0}))
+        m += 1
+        if m == 13:
+            m = 1; y += 1
+    return {"months": months, "series": out}
+
+
+@api.get("/admin/export/products-sold.csv")
+async def export_products_sold_csv(
+    admin: Annotated[dict, Depends(require_admin)],
+    from_: Optional[str] = Query(None, alias="from"),
+    to_: Optional[str] = Query(None, alias="to"),
+):
+    data = await products_sold(admin, from_, to_)  # reuse
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["sku", "product_name", "variation", "unit", "orders", "units", "revenue"])
+    for r in data["rows"]:
+        w.writerow([
+            r["sku"], r["product_name"], r["variation"], r["unit"],
+            r["orders_count"], r["units"], f"{r['revenue']:.2f}",
+        ])
+    w.writerow([])
+    w.writerow(["TOTAL", "", "", "", "", data["total_units"], f"{data['total_revenue']:.2f}"])
+    content = buf.getvalue().encode("utf-8-sig")
+    filename = f"products-sold-{data['from'][:10]}_{data['to'][:10]}.csv"
+    return Response(content=content, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 # ============================================================================
 # Notifications
 # ============================================================================
@@ -1813,12 +1974,18 @@ async def get_settings(user: Annotated[dict, Depends(current_user)]):
         company_email=s.get("company_email", ""),
         company_address=s.get("company_address", ""),
         edo_terms_text=s.get("edo_terms_text", DEFAULT_EDO_TERMS),
+        edo_terms_updated_at=s.get("edo_terms_updated_at"),
     )
 
 
 @api.put("/settings", response_model=SettingsOut)
 async def update_settings(body: SettingsIn, admin: Annotated[dict, Depends(require_admin)]):
     updates = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
+    # If the terms text is changing, bump edo_terms_updated_at so customers must re-accept
+    if "edo_terms_text" in updates:
+        current = await db.settings.find_one({"_id": "app"}) or {}
+        if (current.get("edo_terms_text") or "") != updates["edo_terms_text"]:
+            updates["edo_terms_updated_at"] = datetime.now(timezone.utc)
     if updates:
         await db.settings.update_one({"_id": "app"}, {"$set": updates}, upsert=True)
     s = await db.settings.find_one({"_id": "app"}) or {}
@@ -1829,6 +1996,7 @@ async def update_settings(body: SettingsIn, admin: Annotated[dict, Depends(requi
         company_email=s.get("company_email", ""),
         company_address=s.get("company_address", ""),
         edo_terms_text=s.get("edo_terms_text", DEFAULT_EDO_TERMS),
+        edo_terms_updated_at=s.get("edo_terms_updated_at"),
     )
 
 

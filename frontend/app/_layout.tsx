@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/src/auth";
 import { CartProvider } from "@/src/cart";
 import { ToastProvider } from "@/src/toast";
+import { TermsGate } from "@/src/terms-gate";
 
 LogBox.ignoreAllLogs(true);
 
@@ -23,6 +24,7 @@ export default function RootLayout() {
             <AuthProvider>
               <CartProvider>
                 <Stack screenOptions={{ headerShown: false }} />
+                <TermsGate />
               </CartProvider>
             </AuthProvider>
           </ToastProvider>

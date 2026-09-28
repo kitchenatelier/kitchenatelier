@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Linking, Platform } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Linking, Platform, TextInput,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, tokenStore } from "@/src/api";
@@ -20,6 +22,14 @@ const STATUS_TILES = [
   { label: "Cancelled", color: "#F5D8D8" },
 ];
 
+const monthLabel = (ym: string) => {
+  const [y, m] = ym.split("-");
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleString(undefined, { month: "short" });
+};
+
+const today = () => new Date().toISOString().slice(0, 10);
+
 export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -28,32 +38,35 @@ export default function AdminDashboard() {
   const summary = useQuery({ queryKey: ["dashboard"], queryFn: () => api.dashboardSummary() });
   const recent = useQuery({ queryKey: ["orders-admin", ""], queryFn: () => api.listOrders() });
   const [months, setMonths] = useState(1);
-  const insights = useQuery({
-    queryKey: ["top-customers", months],
-    queryFn: () => api.topCustomers(months),
-  });
+  const insights = useQuery({ queryKey: ["top-customers", months], queryFn: () => api.topCustomers(months) });
+  const sales = useQuery({ queryKey: ["sales-monthly", 6], queryFn: () => api.salesMonthly(6) });
+  const sold = useQuery({ queryKey: ["products-sold"], queryFn: () => api.productsSold() });
 
   const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [fromDate, setFromDate] = useState(today());
+  const [toDate, setToDate] = useState(today());
 
   const counts = summary.data?.counts || {};
   const topList = insights.data?.customers || [];
 
-  const exportTodayCsv = async () => {
+  const maxRevenue = useMemo(() => {
+    const s = sales.data?.series || [];
+    return Math.max(1, ...s.map(x => x.revenue));
+  }, [sales.data]);
+
+  const downloadCsv = async (url: string, filename: string) => {
     setExporting(true);
     try {
       const token = await tokenStore.get();
-      const url = api.ordersCsvUrl(); // defaults to today
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       if (Platform.OS === "web") {
         const objectUrl = URL.createObjectURL(blob);
         const a = (window as any).document.createElement("a");
-        a.href = objectUrl;
-        a.download = `orders-today.csv`;
-        (window as any).document.body.appendChild(a);
-        a.click();
-        a.remove();
+        a.href = objectUrl; a.download = filename;
+        (window as any).document.body.appendChild(a); a.click(); a.remove();
         toast.show("CSV downloaded", "success");
       } else {
         const reader = new FileReader();
@@ -64,6 +77,27 @@ export default function AdminDashboard() {
       toast.show(e.message || "Export failed", "error");
     } finally { setExporting(false); }
   };
+
+  const validateRange = () => {
+    const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+    if (!isDate(fromDate) || !isDate(toDate)) {
+      toast.show("Use format YYYY-MM-DD", "error"); return false;
+    }
+    if (fromDate > toDate) {
+      toast.show("From must be on/before To", "error"); return false;
+    }
+    return true;
+  };
+
+  const exportOrdersRange = () => {
+    if (!validateRange()) return;
+    downloadCsv(api.ordersCsvUrl(fromDate, toDate), `orders-${fromDate}_${toDate}.csv`);
+  };
+  const exportProductsSoldRange = () => {
+    if (!validateRange()) return;
+    downloadCsv(api.productsSoldCsvUrl(fromDate, toDate), `products-sold-${fromDate}_${toDate}.csv`);
+  };
+  const exportTodayOrders = () => downloadCsv(api.ordersCsvUrl(), "orders-today.csv");
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -85,21 +119,12 @@ export default function AdminDashboard() {
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}
         refreshControl={
           <RefreshControl
-            refreshing={summary.isFetching || recent.isFetching || insights.isFetching}
-            onRefresh={() => { summary.refetch(); recent.refetch(); insights.refetch(); }}
+            refreshing={summary.isFetching || recent.isFetching || insights.isFetching || sales.isFetching || sold.isFetching}
+            onRefresh={() => { summary.refetch(); recent.refetch(); insights.refetch(); sales.refetch(); sold.refetch(); }}
             tintColor={colors.brandPrimary}
           />
         }
       >
-        <Button
-          testID="export-today-csv"
-          title={exporting ? "Preparing CSV..." : "Export today's orders (CSV)"}
-          onPress={exportTodayCsv}
-          loading={exporting}
-          variant="secondary"
-          style={{ marginBottom: spacing.md }}
-        />
-
         <View style={styles.grid}>
           {STATUS_TILES.map(s => (
             <Pressable
@@ -114,7 +139,102 @@ export default function AdminDashboard() {
           ))}
         </View>
 
-        <View style={styles.insightsCard}>
+        {/* Sales chart */}
+        <View style={styles.card}>
+          <Text style={styles.section}>Monthly sales (last 6 months)</Text>
+          <View style={styles.chartBox}>
+            {(sales.data?.series || []).map((b) => {
+              const heightPct = maxRevenue > 0 ? (b.revenue / maxRevenue) : 0;
+              return (
+                <View key={b.month} style={styles.chartCol} testID={`sales-bar-${b.month}`}>
+                  <Text style={styles.barValue}>{b.revenue > 0 ? `RM ${Math.round(b.revenue)}` : ""}</Text>
+                  <View style={styles.barTrack}>
+                    <View style={[styles.barFill, { height: `${Math.max(4, heightPct * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.barLabel}>{monthLabel(b.month)}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* What sold this month */}
+        <View style={styles.card}>
+          <Text style={styles.section}>What sold this month</Text>
+          <Text style={styles.hint}>{sold.data ? `${sold.data.total_units} units · RM ${sold.data.total_revenue.toFixed(2)}` : "..."}</Text>
+          {(sold.data?.rows || []).length === 0 ? (
+            <Text style={styles.empty} testID="sold-empty">No sales yet this month</Text>
+          ) : (
+            (sold.data!.rows).slice(0, 10).map((r, i) => (
+              <View key={`${r.sku}-${r.variation}-${i}`} style={styles.itemRow} testID={`sold-${r.sku}-${r.variation || "base"}`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{r.product_name}{r.variation ? ` — ${r.variation}` : ""}</Text>
+                  <Text style={styles.itemMeta}>{r.sku} · {r.units} {r.unit} · {r.orders_count} order{r.orders_count === 1 ? "" : "s"}</Text>
+                </View>
+                <Text style={styles.custAmount}>RM {r.revenue.toFixed(2)}</Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Exports */}
+        <View style={styles.card}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={styles.section}>Exports</Text>
+            <Pressable
+              testID="export-toggle-range"
+              onPress={() => setExportOpen(v => !v)}
+              style={styles.linkBtn}
+            >
+              <Text style={{ color: colors.brandPrimary, fontSize: 13 }}>{exportOpen ? "Hide range" : "Custom range"}</Text>
+            </Pressable>
+          </View>
+          <Button
+            testID="export-today-csv"
+            title={exporting ? "Preparing..." : "Export today's orders (CSV)"}
+            onPress={exportTodayOrders}
+            loading={exporting}
+            variant="secondary"
+            style={{ marginTop: spacing.sm }}
+          />
+          {exportOpen && (
+            <View style={{ marginTop: spacing.sm }}>
+              <View style={styles.rangeRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.hint}>From (YYYY-MM-DD)</Text>
+                  <TextInput
+                    testID="range-from"
+                    style={styles.input}
+                    value={fromDate}
+                    onChangeText={setFromDate}
+                    placeholder="2026-09-01"
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.hint}>To (YYYY-MM-DD)</Text>
+                  <TextInput
+                    testID="range-to"
+                    style={styles.input}
+                    value={toDate}
+                    onChangeText={setToDate}
+                    placeholder={today()}
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                <Button testID="export-orders-range" title="Orders CSV" onPress={exportOrdersRange} loading={exporting} variant="secondary" style={{ flex: 1 }} />
+                <Button testID="export-products-sold-range" title="Products sold CSV" onPress={exportProductsSoldRange} loading={exporting} variant="secondary" style={{ flex: 1 }} />
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Top wholesalers */}
+        <View style={styles.card}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={styles.section}>Top wholesalers</Text>
             <View style={{ flexDirection: "row", gap: 6 }}>
@@ -165,7 +285,7 @@ export default function AdminDashboard() {
           <Pressable
             key={o.id}
             testID={`admin-recent-${o.order_number}`}
-            style={styles.card}
+            style={styles.card2}
             onPress={() => router.push(`/admin/order/${o.id}`)}
           >
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
@@ -192,13 +312,14 @@ const styles = StyleSheet.create({
   tile: { width: "31%", padding: spacing.md, borderRadius: radius.md, minHeight: 76 },
   tileCount: { fontSize: 20, fontWeight: "700", color: colors.onSurface },
   tileLabel: { fontSize: 11, color: colors.onSurface, marginTop: 2 },
-  section: { fontSize: 16, fontWeight: "600", color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.sm },
-  card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
+  section: { fontSize: 16, fontWeight: "600", color: colors.onSurface, marginBottom: 6 },
+  card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  card2: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
   num: { fontWeight: "600", color: colors.onSurface },
   status: { color: colors.brandPrimary, fontWeight: "500" },
   meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
   total: { color: colors.brandPrimary, fontWeight: "600", marginTop: 4 },
-  insightsCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  hint: { color: colors.muted, fontSize: 12 },
   insightRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.divider, gap: 8 },
   rank: { width: 24, height: 24, borderRadius: 999, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
   rankText: { color: colors.onBrandTertiary, fontWeight: "700", fontSize: 12 },
@@ -206,4 +327,16 @@ const styles = StyleSheet.create({
   custMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
   custAmount: { color: colors.brandPrimary, fontWeight: "700" },
   empty: { color: colors.muted, fontStyle: "italic", paddingVertical: spacing.sm },
+  itemRow: { flexDirection: "row", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.divider, alignItems: "center" },
+  name: { color: colors.onSurface, fontWeight: "500", fontSize: 14 },
+  itemMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  input: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, minHeight: 40, color: colors.onSurface, fontSize: 13, paddingVertical: 8, marginTop: 4 },
+  rangeRow: { flexDirection: "row", gap: 8 },
+  linkBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+  chartBox: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height: 140, marginTop: spacing.sm, gap: 6 },
+  chartCol: { flex: 1, alignItems: "center", justifyContent: "flex-end" },
+  barTrack: { width: "100%", height: 100, backgroundColor: colors.surface, borderRadius: 4, overflow: "hidden", justifyContent: "flex-end", borderWidth: 1, borderColor: colors.border },
+  barFill: { width: "100%", backgroundColor: colors.brandPrimary },
+  barLabel: { color: colors.muted, fontSize: 10, marginTop: 4 },
+  barValue: { color: colors.onSurface, fontSize: 9, marginBottom: 2, fontWeight: "500" },
 });

@@ -25,6 +25,8 @@ export type User = {
   address: string;
   delivery_instructions: string;
   payment_terms_days: number;
+  terms_accepted_at: string | null;
+  must_accept_terms: boolean;
 };
 
 export type Variation = { name: string; price: number; available: boolean; stock: number };
@@ -105,6 +107,7 @@ export type Settings = {
   company_email: string;
   company_address: string;
   edo_terms_text: string;
+  edo_terms_updated_at: string | null;
 };
 
 export type CustomerPrice = { product_id: string; variation: string; price: number };
@@ -149,6 +152,7 @@ export const api = {
     }),
   me: () => request<User>("/auth/me"),
   updateMe: (body: Partial<User>) => request<User>("/auth/me", { method: "PUT", body: JSON.stringify(body) }),
+  acceptTerms: () => request<User>("/auth/accept-terms", { method: "POST" }),
 
   // ---- products ----
   listProducts: (q = "", category = "") => {
@@ -220,11 +224,29 @@ export const api = {
   // ---- admin insights & exports ----
   topCustomers: (months = 1) =>
     request<{ since: string; months: number; customers: any[] }>(`/admin/insights/top-customers?months=${months}`),
+  productsSold: (from?: string, to?: string) => {
+    const p = new URLSearchParams();
+    if (from) p.append("from", from);
+    if (to) p.append("to", to);
+    return request<{ from: string; to: string; total_units: number; total_revenue: number; rows: any[] }>(
+      `/admin/insights/products-sold${p.toString() ? "?" + p.toString() : ""}`,
+    );
+  },
+  salesMonthly: (months = 6) =>
+    request<{ months: number; series: { month: string; revenue: number; orders: number; units: number }[] }>(
+      `/admin/insights/sales-monthly?months=${months}`,
+    ),
   ordersCsvUrl: (fromDate?: string, toDate?: string) => {
     const p = new URLSearchParams();
     if (fromDate) p.append("from", fromDate);
     if (toDate) p.append("to", toDate);
     return `${BASE}/api/admin/export/orders.csv${p.toString() ? "?" + p.toString() : ""}`;
+  },
+  productsSoldCsvUrl: (fromDate?: string, toDate?: string) => {
+    const p = new URLSearchParams();
+    if (fromDate) p.append("from", fromDate);
+    if (toDate) p.append("to", toDate);
+    return `${BASE}/api/admin/export/products-sold.csv${p.toString() ? "?" + p.toString() : ""}`;
   },
 
   // ---- notifications ----

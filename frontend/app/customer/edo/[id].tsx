@@ -27,7 +27,6 @@ export default function EdoScreen() {
   const [signerName, setSignerName] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string>("");
-  const [accepted, setAccepted] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,7 +76,6 @@ export default function EdoScreen() {
       return;
     }
     if (photos.length === 0) { toast.show("Add at least one photo", "error"); return; }
-    if (!accepted) { toast.show("Please accept the terms", "error"); return; }
     setSubmitting(true);
     try {
       await api.submitEdo(id!, {
@@ -188,20 +186,9 @@ export default function EdoScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.section}>4. Terms &amp; conditions</Text>
+          <Text style={styles.section}>Terms &amp; conditions (accepted at login)</Text>
           <Text style={styles.termsText}>{terms}</Text>
-          <Pressable
-            testID="edo-accept-terms"
-            onPress={() => setAccepted(a => !a)}
-            style={styles.acceptRow}
-          >
-            <View style={[styles.checkbox, accepted && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}>
-              {accepted && <Text style={{ color: "#FFF", fontSize: 14, fontWeight: "700" }}>✓</Text>}
-            </View>
-            <Text style={{ flex: 1, color: colors.onSurface }}>
-              I have read and agree to the terms above.
-            </Text>
-          </Pressable>
+          <Text style={[styles.hint, { marginTop: 6 }]}>You already accepted these terms when you signed in. They apply to this delivery.</Text>
         </View>
 
         <Button
@@ -209,7 +196,7 @@ export default function EdoScreen() {
           title="Submit E-DO"
           onPress={submit}
           loading={submitting}
-          disabled={!signerName || !signatureDataUrl || photos.length === 0 || !accepted}
+          disabled={!signerName || !signatureDataUrl || photos.length === 0}
           style={{ marginTop: spacing.md }}
         />
         {uploading && <ActivityIndicator style={{ marginTop: 8 }} color={colors.brandPrimary} />}

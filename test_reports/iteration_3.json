@@ -1,0 +1,40 @@
+{
+  "summary": "Backend testing of new features (global T&C acceptance + admin insights endpoints + orders CSV custom range). Created /app/backend/tests/test_terms_and_insights.py with 17 new tests covering every acceptance criterion — all 17 PASS. Ran full regression: 69 pass, 1 legacy test fails as a legitimate side-effect of the new feature (test_features.py::TestEDO::test_edo_full_flow now needs the demo customer to POST /auth/accept-terms before signing E-DO). No backend bugs found — the new implementation matches the spec exactly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "backend/tests/test_features.py::TestEDO::test_edo_full_flow",
+        "issue": "Existing regression test fails with 400 'Please accept the T&C on the home screen first'. Root cause is intentional new behavior — the E-DO submit now enforces global T&C acceptance. Fix: add `requests.post(f'{API}/auth/accept-terms', headers=cust_headers)` before the E-DO submit call in this test."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_terms_and_insights.py",
+    "/app/test_reports/pytest/pytest_terms_insights.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Update /app/backend/tests/test_features.py::TestEDO::test_edo_full_flow to call POST /api/auth/accept-terms with the demo customer's token before submitting E-DO (legacy test needs update because of new global T&C requirement). No production code changes needed."
+  ],
+  "critical_code_review_comments": [
+    "server.py:1885 — sales-monthly aggregation matches on {'$gte': start} but uses no end bound; harmless (future orders shouldn't exist) but consider bounding to now for safety.",
+    "server.py:1918 — export_products_sold_csv calls products_sold(admin, from_, to_) directly. Works but bypasses FastAPI dependency injection; fine as a helper, just noting.",
+    "server.py:369 — _must_accept_terms compares tz-aware `accepted` datetime with `updated`. Both come from datetime.now(timezone.utc) and Mongo preserves tz on decode by default with motor — verified passing tests confirm no naive/aware mismatch."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_terms_and_insights.py (NEW - 17 tests all pass)"
+  ],
+  "success_rate": {"backend": "100% for new features (17/17). Overall regression: 69/70 (98.6%) — the 1 failure is a legacy test not adapted to the new global T&C requirement, not a product bug.", "frontend": "not tested (backend-only per request)"},
+  "seed_data_creation": "Test file creates fresh customers with unique emails `tnc_<suffix>_<uuid>@example.com`. All test writes are cleaned up in-flight (settings text and company_contact are restored to original in try/finally blocks). Uses UNIQUE new emails per acceptance-criteria guidance so tests are idempotent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend features (global T&C + admin insights + orders CSV range) are fully covered by /app/backend/tests/test_terms_and_insights.py (17 tests). Uses `@example.com` for register emails (pydantic EmailStr rejects `.local` TLDs). Tests are idempotent — settings text is saved and restored. The single legacy failure in test_features.py::test_edo_full_flow is not a product bug; it needs a one-line update to accept T&C before signing.",
+  "rca_of_issue": "N/A - no product bugs found. The single legacy test failure is expected because the new feature adds an enforced precondition (global T&C acceptance) that the old test didn't satisfy. Fix: prepend `requests.post(f'{API}/auth/accept-terms', headers=<cust_headers>)` before the E-DO signing step in test_features.py::TestEDO::test_edo_full_flow."
+}
