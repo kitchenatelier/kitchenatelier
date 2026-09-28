@@ -165,6 +165,8 @@ export const api = {
 
   // customers
   listCustomers: (q = "") => request<any[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  createCustomer: (body: { email: string; password: string; name: string; company?: string; phone?: string; address?: string; delivery_instructions?: string }) =>
+    request<User>("/customers", { method: "POST", body: JSON.stringify(body) }),
 
   // notifications
   listNotifications: () => request<Notification[]>("/notifications"),

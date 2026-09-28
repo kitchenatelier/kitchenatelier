@@ -828,6 +828,35 @@ async def dashboard_summary(admin: Annotated[dict, Depends(require_admin)]):
 
 
 # -------- Customers (admin) --------
+class CustomerCreateIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    name: str
+    company: str = ""
+    phone: str = ""
+    address: str = ""
+    delivery_instructions: str = ""
+
+
+@api.post("/customers", response_model=UserOut)
+async def admin_create_customer(body: CustomerCreateIn, admin: Annotated[dict, Depends(require_admin)]):
+    email = str(body.email).lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    doc = {
+        "email": email,
+        "password_hash": password_hash.hash(body.password),
+        "role": "customer",
+        "name": body.name, "company": body.company, "phone": body.phone,
+        "address": body.address, "delivery_instructions": body.delivery_instructions,
+        "created_at": datetime.now(timezone.utc),
+        "created_by_admin": admin["email"],
+    }
+    result = await db.users.insert_one(doc)
+    user = await db.users.find_one({"_id": result.inserted_id})
+    return _user_public(user)
+
+
 @api.get("/customers")
 async def list_customers(admin: Annotated[dict, Depends(require_admin)], q: str = ""):
     query: dict = {"role": "customer"}
