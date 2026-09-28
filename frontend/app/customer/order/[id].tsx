@@ -1,13 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Linking, Platform } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api } from "@/src/api";
+import { api, resolveImageUrl, tokenStore } from "@/src/api";
 import { colors, radius, spacing } from "@/src/theme";
 import { Button } from "@/src/button";
 import { StatusChip } from "../home";
 import { useCart } from "@/src/cart";
 import { useToast } from "@/src/toast";
+
+const EDO_ELIGIBLE = new Set(["Ready for Delivery", "Dispatched", "Delivered", "Completed"]);
 
 export default function CustomerOrderDetail() {
   const insets = useSafeAreaInsets();
@@ -25,7 +28,6 @@ export default function CustomerOrderDetail() {
 
   const reorder = async () => {
     if (!o) return;
-    // Fetch product to get image_url etc.
     for (const it of o.items) {
       try {
         const p = await api.getProduct(it.product_id);
@@ -40,7 +42,27 @@ export default function CustomerOrderDetail() {
     router.push("/customer/cart");
   };
 
+  const openInvoice = async () => {
+    if (!o) return;
+    const token = await tokenStore.get();
+    try {
+      const res = await fetch(api.invoiceUrl(o.id), { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) { toast.show("Could not open invoice", "error"); return; }
+      const blob = await res.blob();
+      if (Platform.OS === "web") {
+        (window as any).open(URL.createObjectURL(blob), "_blank");
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => Linking.openURL(reader.result as string).catch(() => toast.show("Open on web preview to download", "info"));
+        reader.readAsDataURL(blob);
+      }
+    } catch { toast.show("Could not open invoice", "error"); }
+  };
+
   if (!o) return <View style={{ flex: 1, backgroundColor: colors.surface }} />;
+
+  const canSignEdo = !o.edo?.signed && EDO_ELIGIBLE.has(o.status);
+  const dueOverdue = o.invoice_due_at && !o.paid && new Date(o.invoice_due_at) < new Date();
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -58,6 +80,50 @@ export default function CustomerOrderDetail() {
           <View style={[styles.card, { backgroundColor: colors.brandTertiary }]}>
             <Text style={{ color: colors.onBrandTertiary, fontWeight: "600", marginBottom: 4 }}>Message from The Kitchen Atelier</Text>
             <Text style={{ color: colors.onBrandTertiary }}>{o.customer_facing_notes}</Text>
+          </View>
+        )}
+
+        {canSignEdo && (
+          <View style={[styles.card, { borderColor: colors.brandPrimary, borderWidth: 1.5 }]} testID="edo-cta-card">
+            <Text style={styles.section}>Sign the E-DO on receipt</Text>
+            <Text style={styles.hint}>Once the goods arrive, please sign the Electronic Delivery Order and upload a photo of the box. This confirms receipt.</Text>
+            <Button
+              testID="sign-edo-button"
+              title="Sign E-DO"
+              onPress={() => router.push(`/customer/edo/${o.id}`)}
+              style={{ marginTop: spacing.sm }}
+            />
+          </View>
+        )}
+
+        {o.edo?.signed && (
+          <View style={styles.card} testID="edo-signed-card">
+            <Text style={styles.section}>E-DO signed ✓</Text>
+            <Text style={styles.hint}>
+              Signed by {o.edo.signer_name} on {o.edo.signed_at ? new Date(o.edo.signed_at).toLocaleString() : "-"}
+            </Text>
+            {!!o.edo.signature_url && (
+              <Image source={{ uri: resolveImageUrl(o.edo.signature_url) }} style={styles.sig} contentFit="contain" />
+            )}
+            <ScrollView horizontal contentContainerStyle={{ gap: 8, marginTop: 8 }} showsHorizontalScrollIndicator={false}>
+              {o.edo.photo_urls.map(u => (
+                <Image key={u} source={{ uri: resolveImageUrl(u) }} style={styles.thumb} contentFit="cover" />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {(o.invoice_issued_at || o.invoice_due_at) && showPrice && (
+          <View style={styles.card}>
+            <Text style={styles.section}>Invoice</Text>
+            {o.invoice_issued_at && <Text style={styles.line}>Issued: {new Date(o.invoice_issued_at).toLocaleDateString()}</Text>}
+            {o.invoice_due_at && (
+              <Text style={[styles.line, dueOverdue && { color: colors.error, fontWeight: "600" }]}>
+                Due: {new Date(o.invoice_due_at).toLocaleDateString()} ({o.payment_terms_days} days){dueOverdue ? " · OVERDUE" : ""}
+              </Text>
+            )}
+            <Text style={styles.line}>Payment: {o.paid ? "Paid ✓" : "Unpaid"}</Text>
+            <Button testID="cust-invoice-btn" title="Open invoice PDF" onPress={openInvoice} variant="secondary" style={{ marginTop: 8 }} />
           </View>
         )}
 
@@ -112,6 +178,8 @@ const styles = StyleSheet.create({
   meta: { color: colors.muted, marginTop: 2 },
   card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
   section: { fontWeight: "600", color: colors.onSurface, marginBottom: 6, fontSize: 15 },
+  hint: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  line: { color: colors.onSurface, fontSize: 13, marginTop: 2 },
   itemRow: { flexDirection: "row", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.divider },
   itemName: { color: colors.onSurface, fontWeight: "500" },
   itemMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
@@ -119,4 +187,6 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8, paddingTop: 8 },
   totalLabel: { fontWeight: "600", color: colors.onSurface, fontSize: 16 },
   totalValue: { color: colors.brandPrimary, fontWeight: "700", fontSize: 18 },
+  sig: { width: "100%", height: 100, marginTop: 8, backgroundColor: colors.surface, borderRadius: radius.sm },
+  thumb: { width: 96, height: 96, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
 });

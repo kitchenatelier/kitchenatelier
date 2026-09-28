@@ -53,6 +53,13 @@ export default function AdminProducts() {
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.meta}>{item.sku} · RM {item.price.toFixed(2)}</Text>
               <Text style={styles.meta}>{item.variations.length} variations · {item.category}</Text>
+              {item.track_stock && (
+                <Text style={styles.stock}>
+                  Stock: {item.variations.length > 0
+                    ? item.variations.reduce((s, v) => s + (v.stock || 0), 0)
+                    : item.stock} units
+                </Text>
+              )}
               <Pressable
                 testID={`toggle-avail-${item.sku}`}
                 onPress={() => toggleAvailable(item.id, item.available)}
@@ -81,5 +88,6 @@ const styles = StyleSheet.create({
   img: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
   name: { fontWeight: "600", color: colors.onSurface },
   meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  stock: { color: colors.brandPrimary, fontSize: 12, marginTop: 2, fontWeight: "500" },
   empty: { color: colors.muted, textAlign: "center", marginTop: spacing.xxl },
 });

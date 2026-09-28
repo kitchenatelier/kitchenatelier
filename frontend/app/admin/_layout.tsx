@@ -31,6 +31,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="settings" options={{ tabBarIcon: ({ focused }) => <TabIcon label="Settings" focused={focused} /> }} />
       <Tabs.Screen name="order/[id]" options={{ href: null }} />
       <Tabs.Screen name="product/edit" options={{ href: null }} />
+      <Tabs.Screen name="customer/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

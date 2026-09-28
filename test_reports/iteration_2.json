@@ -1,0 +1,32 @@
+{
+  "summary": "All 20 backend tests for the Kitchen Atelier feature additions passed (100% success). Coverage includes: settings edo_terms_text/company_address, customer payment_terms_days (auth/me, admin PUT/POST), customer-specific pricing (set/get + order uses customer price), product track_stock/stock + per-variation stock, out-of-stock rejection, stock decrement on order and restock on cancel, admin PUT /orders/{id}/items with stock rollback on OOS, invoice_issued_at/invoice_due_at set on Confirmed based on customer.payment_terms_days, paid toggle (admin 200, customer 403), dashboard summary overdue_count/unpaid_total, E-DO photo upload + retrieve via /api/files, E-DO signing with signature data URL that auto-advances to Delivered and blocks re-sign, invoice PDF download 200/application-pdf with 403 for another customer, CSV product import (multi-row variation merge + update-in-place by SKU), CSV customer import (new + password<6 rejected + existing email updated but password preserved and terms updated).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_features.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py has grown to ~1730 lines. Consider splitting into routers (auth, products, orders, edo, settings, customers, imports) for maintainability.",
+    "In _validate_and_build_items during PUT /orders/{id}/items, if two items in the payload target the same variation the aggregate stock is not checked against pre-consumed stock (each item is checked individually). Not tested here but a potential edge case.",
+    "PUT /orders/{id}/status with 'Cancelled' after already Cancelled early-returns before restocking (handled), but reversing from Cancelled to another status intentionally does NOT re-consume stock — documented in comment; consider surfacing this to admin UI to avoid confusion.",
+    "invoice_due_at is not recomputed if payment_terms_days is changed after Confirmed; acceptable but worth noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_features.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Test-scoped: created TEST_ prefixed customers, one TEST_ tracked product (auto-cleaned via fixture teardown), and imported TEST_ products/customers via CSV. Demo customer payment_terms_days was left at 60 after the CSV import test (updated from 30). Flag: main agent may want to reset to 30 for a clean demo, but does not affect functionality.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Feature-addition test suite lives at /app/backend/tests/test_features.py. Uses EXPO_PUBLIC_BACKEND_URL (falls back to preview URL). Tests are idempotent-safe and clean up their own products; a TEST_ customer created for the forbidden-invoice case is not cleaned (harmless). Demo customer payment_terms_days ends at 60 after run. All previous MVP tests in backend_test.py were not re-run this iteration."
+}

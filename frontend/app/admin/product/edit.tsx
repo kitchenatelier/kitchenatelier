@@ -20,6 +20,7 @@ export default function ProductEdit() {
   const [form, setForm] = useState({
     sku: "", name: "", description: "", category: "", image_url: "",
     unit: "pcs", price: "0", available: true, is_demo: false,
+    track_stock: false, stock: "0",
   });
   const [variations, setVariations] = useState<Variation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,6 +33,7 @@ export default function ProductEdit() {
           sku: p.sku, name: p.name, description: p.description, category: p.category,
           image_url: p.image_url, unit: p.unit, price: String(p.price),
           available: p.available, is_demo: p.is_demo,
+          track_stock: p.track_stock, stock: String(p.stock),
         });
         setVariations(p.variations);
       }).catch((e) => toast.show(e.message, "error"));
@@ -50,9 +52,7 @@ export default function ProductEdit() {
     const asset = res.assets[0];
     setUploading(true);
     try {
-      const name = asset.fileName || `image-${Date.now()}.jpg`;
-      const type = asset.mimeType || "image/jpeg";
-      const out = await api.uploadProductImage(asset.uri, name, type);
+      const out = await api.uploadProductImage(asset.uri, asset.fileName || `img-${Date.now()}.jpg`, asset.mimeType || "image/jpeg");
       set("image_url")(out.url);
       toast.show("Image uploaded", "success");
     } catch (e: any) {
@@ -60,7 +60,7 @@ export default function ProductEdit() {
     } finally { setUploading(false); }
   };
 
-  const addVariation = () => setVariations(v => [...v, { name: "", price: 0, available: true }]);
+  const addVariation = () => setVariations(v => [...v, { name: "", price: 0, available: true, stock: 0 }]);
   const setVarField = (idx: number, k: keyof Variation, val: any) =>
     setVariations(v => v.map((x, i) => (i === idx ? { ...x, [k]: val } : x)));
   const removeVariation = (idx: number) => setVariations(v => v.filter((_, i) => i !== idx));
@@ -72,7 +72,10 @@ export default function ProductEdit() {
       sku: form.sku, name: form.name, description: form.description, category: form.category,
       image_url: form.image_url, unit: form.unit, price: parseFloat(form.price) || 0,
       available: form.available, is_demo: form.is_demo,
-      variations: variations.filter(v => v.name.trim()),
+      track_stock: form.track_stock, stock: parseInt(form.stock || "0", 10) || 0,
+      variations: variations
+        .filter(v => v.name.trim())
+        .map(v => ({ ...v, price: Number(v.price) || 0, stock: Number(v.stock) || 0 })),
     };
     try {
       if (id) await api.updateProduct(id, payload);
@@ -100,7 +103,7 @@ export default function ProductEdit() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: colors.surface }}>
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: insets.top + spacing.lg, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: insets.top + spacing.lg, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
         <Pressable testID="pe-back" onPress={() => router.back()}><Text style={{ color: colors.brandPrimary }}>← Back</Text></Pressable>
         <Text style={styles.title}>{id ? "Edit Product" : "New Product"}</Text>
 
@@ -122,14 +125,40 @@ export default function ProductEdit() {
           <Switch value={form.available} onValueChange={set("available")} trackColor={{ true: colors.brandPrimary, false: colors.border }} />
         </View>
 
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Track stock</Text>
+            <Text style={styles.hint}>When on, orders that exceed stock are blocked.</Text>
+          </View>
+          <Switch value={form.track_stock} onValueChange={set("track_stock")} trackColor={{ true: colors.brandPrimary, false: colors.border }} />
+        </View>
+
+        {form.track_stock && variations.length === 0 && (
+          <Field label="Base stock (units in warehouse)" testID="pe-stock" value={form.stock} onChangeText={set("stock")} keyboardType="number-pad" />
+        )}
+
         <Text style={[styles.label, { marginTop: spacing.lg }]}>Variations</Text>
+        <Text style={styles.hint}>If a product has sizes / options, add them here. Each variation carries its own price and stock.</Text>
         {variations.map((v, i) => (
-          <View key={i} style={styles.varRow} testID={`variation-row-${i}`}>
-            <TextInput style={[styles.input, { flex: 2 }]} placeholder="Name (e.g. 20cm)" placeholderTextColor={colors.muted} value={v.name} onChangeText={t => setVarField(i, "name", t)} />
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="Price" placeholderTextColor={colors.muted} keyboardType="decimal-pad" value={String(v.price)} onChangeText={t => setVarField(i, "price", parseFloat(t) || 0)} />
-            <Pressable onPress={() => removeVariation(i)} style={{ padding: 8 }}>
-              <Text style={{ color: colors.error }}>✕</Text>
-            </Pressable>
+          <View key={i} style={styles.varCard} testID={`variation-row-${i}`}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput style={[styles.input, { flex: 2 }]} placeholder="Name (e.g. 20cm)" placeholderTextColor={colors.muted} value={v.name} onChangeText={t => setVarField(i, "name", t)} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Price" placeholderTextColor={colors.muted} keyboardType="decimal-pad" value={String(v.price)} onChangeText={t => setVarField(i, "price", parseFloat(t) || 0)} />
+              <Pressable onPress={() => removeVariation(i)} style={{ padding: 8 }}>
+                <Text style={{ color: colors.error }}>✕</Text>
+              </Pressable>
+            </View>
+            {form.track_stock && (
+              <View style={{ marginTop: 6, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Stock</Text>
+                <TextInput
+                  style={[styles.input, { width: 100 }]}
+                  keyboardType="number-pad"
+                  value={String(v.stock ?? 0)}
+                  onChangeText={t => setVarField(i, "stock", parseInt(t || "0", 10) || 0)}
+                />
+              </View>
+            )}
           </View>
         ))}
         <Button testID="add-variation-btn" title="+ Add variation" onPress={addVariation} variant="secondary" style={{ marginTop: 8 }} />
@@ -157,8 +186,9 @@ function Field(props: any) {
 const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "600", color: colors.onSurface, marginVertical: spacing.md },
   label: { color: colors.onSurface, fontWeight: "500", marginBottom: 6 },
+  hint: { color: colors.muted, fontSize: 12, marginBottom: 4 },
   input: { backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, minHeight: 48, color: colors.onSurface, fontSize: 15, paddingVertical: 10 },
   imgPreview: { width: 96, height: 96, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md },
-  varRow: { flexDirection: "row", gap: 8, alignItems: "center", marginTop: 8 },
+  varCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border, marginTop: 8 },
 });

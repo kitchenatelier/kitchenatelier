@@ -5,6 +5,7 @@ import {
   Modal, Pressable, KeyboardAvoidingView, Platform, ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { api } from "@/src/api";
 import { colors, radius, spacing } from "@/src/theme";
 import { Button } from "@/src/button";
@@ -14,6 +15,7 @@ export default function AdminCustomers() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const customers = useQuery({ queryKey: ["customers-admin", q], queryFn: () => api.listCustomers(q) });
@@ -45,13 +47,18 @@ export default function AdminCustomers() {
         refreshControl={<RefreshControl refreshing={customers.isFetching} onRefresh={() => customers.refetch()} tintColor={colors.brandPrimary} />}
         ListEmptyComponent={<Text style={styles.empty}>No customers yet</Text>}
         renderItem={({ item }) => (
-          <View style={styles.card} testID={`customer-${item.email}`}>
+          <Pressable
+            style={styles.card}
+            testID={`customer-${item.email}`}
+            onPress={() => router.push(`/admin/customer/${item.id}`)}
+          >
             <Text style={styles.name}>{item.name || item.email}</Text>
             <Text style={styles.meta}>{item.email}</Text>
             {!!item.company && <Text style={styles.meta}>{item.company}</Text>}
             {!!item.phone && <Text style={styles.meta}>{item.phone}</Text>}
             {!!item.address && <Text style={styles.meta}>{item.address}</Text>}
-          </View>
+            <Text style={styles.metaBrand}>Payment terms: {item.payment_terms_days ?? 30} days</Text>
+          </Pressable>
         )}
       />
 
@@ -175,6 +182,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
   name: { fontWeight: "600", color: colors.onSurface },
   meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  metaBrand: { color: colors.brandPrimary, fontSize: 12, marginTop: 4, fontWeight: "500" },
   empty: { color: colors.muted, textAlign: "center", marginTop: spacing.xxl },
 
   modalHeader: {

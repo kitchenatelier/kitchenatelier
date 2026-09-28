@@ -30,6 +30,16 @@ export default function AdminDashboard() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Text style={styles.title}>Admin Dashboard</Text>
         <Text style={styles.sub}>Total orders: {summary.data?.total ?? 0}</Text>
+        {summary.data && (summary.data.overdue_count > 0 || summary.data.unpaid_total > 0) && (
+          <View style={styles.alertRow}>
+            <Text style={styles.alertText}>
+              {summary.data.overdue_count > 0
+                ? `${summary.data.overdue_count} invoice${summary.data.overdue_count === 1 ? "" : "s"} overdue`
+                : "All invoices on time"}
+              {summary.data.unpaid_total > 0 ? ` · Unpaid RM ${summary.data.unpaid_total.toFixed(2)}` : ""}
+            </Text>
+          </View>
+        )}
       </View>
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}
@@ -75,6 +85,8 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, backgroundColor: colors.surface },
   title: { fontSize: 22, fontWeight: "600", color: colors.onSurface },
   sub: { color: colors.muted, marginTop: 2 },
+  alertRow: { backgroundColor: colors.brandTertiary, borderRadius: radius.sm, padding: spacing.sm, marginTop: spacing.sm },
+  alertText: { color: colors.onBrandTertiary, fontSize: 12, fontWeight: "500" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md },
   tile: { width: "31%", padding: spacing.md, borderRadius: radius.md, minHeight: 76 },
   tileCount: { fontSize: 20, fontWeight: "700", color: colors.onSurface },
