@@ -15,7 +15,7 @@ import jwt
 import requests
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -1645,6 +1645,130 @@ async def import_customers_csv(
             })
         ok += 1
     return {"imported": ok, "failed": failed, "errors": errors[:20]}
+
+
+# ============================================================================
+# Admin: Exports & Insights
+# ============================================================================
+def _parse_range(from_: Optional[str], to_: Optional[str]) -> tuple[datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    if from_:
+        try:
+            start = datetime.strptime(from_, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'from' (YYYY-MM-DD)")
+    else:
+        start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    if to_:
+        try:
+            end = datetime.strptime(to_, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'to' (YYYY-MM-DD)")
+    else:
+        end = start + timedelta(days=1)
+    if end <= start:
+        raise HTTPException(status_code=400, detail="'to' must be on/after 'from'")
+    return start, end
+
+
+@api.get("/admin/export/orders.csv")
+async def export_orders_csv(
+    admin: Annotated[dict, Depends(require_admin)],
+    from_: Optional[str] = Query(None, alias="from"),
+    to_: Optional[str] = Query(None, alias="to"),
+):
+    """CSV export: one row per order line. Default range = today (UTC)."""
+    start, end = _parse_range(from_, to_)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "order_number", "order_date", "status", "paid",
+        "customer_company", "customer_name", "customer_email",
+        "customer_phone", "customer_address",
+        "sku", "product_name", "variation", "quantity", "unit",
+        "unit_price", "line_total", "order_total",
+        "invoice_issued_at", "invoice_due_at", "payment_terms_days",
+        "customer_notes", "admin_customer_note",
+    ])
+    cursor = db.orders.find({"created_at": {"$gte": start, "$lt": end}}).sort("created_at", 1)
+    async for o in cursor:
+        common = [
+            o.get("order_number", ""),
+            o.get("created_at").isoformat() if o.get("created_at") else "",
+            o.get("status", ""),
+            "Yes" if o.get("paid") else "No",
+            o.get("customer_company", ""),
+            o.get("customer_name", ""),
+            o.get("customer_email", ""),
+            o.get("customer_phone", ""),
+            o.get("customer_address", "").replace("\n", " "),
+        ]
+        trailing = [
+            f"{float(o.get('total_amount', 0.0)):.2f}",
+            o.get("invoice_issued_at").isoformat() if o.get("invoice_issued_at") else "",
+            o.get("invoice_due_at").isoformat() if o.get("invoice_due_at") else "",
+            str(o.get("payment_terms_days", 30)),
+            (o.get("notes") or "").replace("\n", " "),
+            (o.get("customer_facing_notes") or "").replace("\n", " "),
+        ]
+        items = o.get("items") or [{}]
+        for it in items:
+            row = common + [
+                it.get("sku", ""),
+                it.get("product_name", ""),
+                it.get("variation", ""),
+                str(it.get("quantity", "")),
+                it.get("unit", ""),
+                f"{float(it.get('unit_price', 0.0)):.2f}" if it else "",
+                f"{float(it.get('line_total', 0.0)):.2f}" if it else "",
+            ] + trailing
+            writer.writerow(row)
+    data = buf.getvalue().encode("utf-8-sig")  # BOM so Excel recognises UTF-8
+    filename = f"orders-{start.date().isoformat()}_{(end - timedelta(days=1)).date().isoformat()}.csv"
+    return Response(
+        content=data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/admin/insights/top-customers")
+async def top_customers(
+    admin: Annotated[dict, Depends(require_admin)],
+    months: int = 1, limit: int = 10,
+):
+    if months < 1: months = 1
+    if months > 24: months = 24
+    if limit < 1: limit = 1
+    if limit > 100: limit = 100
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=30 * months)
+    pipeline = [
+        {"$match": {"created_at": {"$gte": since}, "status": {"$ne": "Cancelled"}}},
+        {"$group": {
+            "_id": "$customer_id",
+            "orders_count": {"$sum": 1},
+            "total_amount": {"$sum": "$total_amount"},
+            "total_units": {"$sum": {"$sum": "$items.quantity"}},
+            "last_order_at": {"$max": "$created_at"},
+        }},
+        {"$sort": {"total_amount": -1}},
+        {"$limit": limit},
+    ]
+    out = []
+    async for row in db.orders.aggregate(pipeline):
+        cust = await db.users.find_one({"_id": row["_id"]}) or {}
+        out.append({
+            "customer_id": str(row["_id"]),
+            "name": cust.get("name", ""),
+            "company": cust.get("company", ""),
+            "email": cust.get("email", ""),
+            "orders_count": int(row.get("orders_count", 0)),
+            "total_units": int(row.get("total_units", 0) or 0),
+            "total_amount": round(float(row.get("total_amount", 0.0)), 2),
+            "last_order_at": row.get("last_order_at").isoformat() if row.get("last_order_at") else None,
+        })
+    return {"since": since.isoformat(), "months": months, "customers": out}
 
 
 # ============================================================================

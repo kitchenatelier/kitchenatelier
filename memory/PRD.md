@@ -73,5 +73,10 @@ Meta: `/order-statuses`
 - backend: `reportlab` (invoice PDF)
 - frontend: `react-native-signature-canvas` + `react-native-webview` (E-DO signature drawing), `expo-document-picker` (CSV file selection)
 
+## Admin exports & insights
+- `GET /api/admin/export/orders.csv?from=&to=` — one row per order line for range (defaults to today, UTC). Includes company, contact, address, SKU, variation, qty, unit price, line total, order total, invoice dates, paid flag, customer notes and admin's customer-facing note. UTF-8 BOM so Excel opens it correctly.
+- `GET /api/admin/insights/top-customers?months=N&limit=M` — aggregates non-cancelled orders in the last N months (1/3/6 supported in UI) grouped by customer, returning orders_count, total_units, total_amount, last_order_at. Sorted by total_amount desc.
+- Admin dashboard renders both: a one-tap "Export today's orders (CSV)" button and a "Top wholesalers" card with month toggles.
+
 ## Not built (deferred)
 - WhatsApp alerts: deferred by user. Backend already tracks all state (invoice date, due date, status) that a WhatsApp sender would consume. Adding Twilio later is a purely additive change.

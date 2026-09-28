@@ -217,6 +217,16 @@ export const api = {
   importCustomersCsv: (uri: string, name: string) =>
     uploadFile<{ imported: number; failed: number; errors: string[] }>("/admin/import/customers", uri, name, "text/csv"),
 
+  // ---- admin insights & exports ----
+  topCustomers: (months = 1) =>
+    request<{ since: string; months: number; customers: any[] }>(`/admin/insights/top-customers?months=${months}`),
+  ordersCsvUrl: (fromDate?: string, toDate?: string) => {
+    const p = new URLSearchParams();
+    if (fromDate) p.append("from", fromDate);
+    if (toDate) p.append("to", toDate);
+    return `${BASE}/api/admin/export/orders.csv${p.toString() ? "?" + p.toString() : ""}`;
+  },
+
   // ---- notifications ----
   listNotifications: () => request<Notification[]>("/notifications"),
   markNotificationRead: (id: string) => request(`/notifications/${id}/read`, { method: "POST" }),
