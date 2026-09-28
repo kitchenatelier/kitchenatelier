@@ -1,0 +1,144 @@
+{
+  "app_name": "The Kitchen Atelier",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly functional, utility-driven B2B wholesale ordering experience wrapped in a clean, warm, and highly legible iOS-native framework.",
+  "color": {
+    "surface": "#F9F7F3",
+    "onSurface": "#262422",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#262422",
+    "surfaceTertiary": "#F2EFE9",
+    "onSurfaceTertiary": "#4A4744",
+    "surfaceInverse": "#262422",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#BF5D39",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#BF5D39",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#D88668",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#F4DFD7",
+    "onBrandTertiary": "#8F3D1F",
+    "success": "#4A7A59",
+    "onSuccess": "#FFFFFF",
+    "warning": "#E09838",
+    "onWarning": "#FFFFFF",
+    "error": "#B34B4B",
+    "onError": "#FFFFFF",
+    "info": "#4A6C7A",
+    "onInfo": "#FFFFFF",
+    "border": "#EBE6DF",
+    "borderStrong": "#D6CEC3",
+    "divider": "#EBE6DF",
+    "muted": "#7E7973"
+  },
+  "typography": {
+    "displayFontFamily": "Geist",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for catalog clarity. Minimal nested padding in list items to keep high information density while preserving touch targets.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Feather",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [],
+    "dont's": ["Do not use blur or glassmorphism. This is a purely functional B2B utility where flat, high-contrast surfaces ensure maximum readability during fast order processing."]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Customer Home",
+      "purpose": "A streamlined entry point for ordering, highlighting new catalog additions and quick access to previous orders.",
+      "states": {
+        "loading": "Centered spinner",
+        "empty": "No items added yet. Browse the catalog to start.",
+        "error": "Failed to load catalog. Tap to retry."
+      },
+      "layout": "Use a top navigation bar with search. Hero banner using a subtle tint or image backdrop for 'Wholesale Specials'. Below, a two-column grid layout (Pinterest-style) for featured products, ensuring clear visibility of unit pricing, MOQs, and an immediate 'Add to Cart' button."
+    },
+    {
+      "name": "Product Catalogue",
+      "purpose": "The core browsing experience for buyers to view products, select variations, and add quantities to cart.",
+      "states": {
+        "loading": "Skeleton grid",
+        "empty": "No products found matching your filters.",
+        "error": "Could not load products. Pull to refresh."
+      },
+      "layout": "Sticky filter and sorting controls at the top. Stacked list or two-column grid (depending on density). Product cards must display thumbnail, title, SKU, price (if visible), and a quantity stepper right on the card to reduce friction."
+    },
+    {
+      "name": "Cart / Order Builder",
+      "purpose": "Review selected items and quantities, calculate totals, and proceed to checkout.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "Your cart is empty. Continue shopping.",
+        "error": "Failed to update cart."
+      },
+      "layout": "List view of cart items with prominent quantity steppers and a swipe-to-delete action. A sticky bottom section (fixed above safe area) for total cost summary and the primary 'Submit Order' CTA."
+    },
+    {
+      "name": "Admin Dashboard",
+      "purpose": "High-level overview for staff to quickly process incoming orders and update statuses.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "No active orders today.",
+        "error": "Failed to fetch orders."
+      },
+      "layout": "Status-based tabs (Pending, Processing, Shipped) at the top. A stacked list of order cards underneath showing Order ID, Customer Name, Total, and a status chip. Tapping a card opens a modal sheet to quickly update status."
+    }
+  ],
+  "images": {
+    "kitchenware_hero": {
+      "url": "https://images.unsplash.com/photo-1584990347193-6bebebfeaeee?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBraXRjaGVud2FyZSUyMHBvdHMlMjBhbmQlMjBwYW5zJTIwd2hvbGVzYWxlfGVufDB8fHx8MTc5MDU4NTE4M3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "3 stainless steel cooking pots on white ceramic tiles"
+    },
+    "kitchen_atelier_logo": {
+      "url": "https://images.unsplash.com/photo-1604414499020-f9ac575bc5ec?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBraXRjaGVud2FyZSUyMHBvdHMlMjBhbmQlMjBwYW5zJTIwd2hvbGVzYWxlfGVufDB8fHx8MTc5MDU4NTE4M3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "stainless steel cooking pots on stainless steel tray used as logo placeholder"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Focus on utility and speed over heavy styling. This is a functional B2B tool. Skip complex animations.",
+    "Enforce the warm, neutral palette using cream/off-white (`#F9F7F3`) for the background, and terracotta (`#BF5D39`) for CTAs. Avoid generic blues or purples.",
+    "Make sure touch targets for the quantity steppers are large enough (≥ 44x44pt).",
+    "Include both Customer and Admin flows cleanly using role-based routing or a toggle.",
+    "When displaying price, read the settings state (Admin toggle for Price Display).",
+    "Stick to Geist for all typography, using 400 for body and 500 max for headings to keep the UI clean and readable.",
+    "Ensure the 'Submit Order' or 'Checkout' CTA in the cart is sticky at the bottom, outside the scroll view, so users do not have to hunt for it.",
+    "Use solid background for bottom tab bar and headers. As per app category and requirement, glassmorphism is disabled."
+  ]
+}

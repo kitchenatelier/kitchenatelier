@@ -1,0 +1,39 @@
+{
+  "summary": "Backend-only regression run for The Kitchen Atelier MVP. Authored /app/backend/tests/backend_test.py covering auth (register/login/me), products CRUD + role gating, product image upload/proxy, orders (validation, unavailable rejection, bad variation, KA-XXXXXX numbering, idempotent client_ref, customer isolation, cross-customer 403), admin status update (creates history + customer notification), admin notes update, dashboard summary (admin only), customers listing (admin only), notifications list+mark read, settings get/put + admin gating, and 9-status list. All 33 tests passed (100%). Full-stack seed data (admin, demo customer, 5 demo products, settings) is present and idempotent. No expo/react native issues assessed (frontend testing was skipped per request).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/orders", "issue": "Zero-quantity payload is rejected at the Pydantic layer (422) because OrderItemIn uses Field(ge=1). The explicit `quantity must be positive` (HTTP 400) branch in _validate_and_build_items is unreachable. Not a functional bug; keeping test tolerant to both 400/422."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No backend fixes required. Optional: tighten OrderItemIn error to return 400 with a friendlier message instead of 422, or remove the unreachable branch."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~920 lines — consider splitting into routers (auth, products, orders, notifications, settings, storage) when it grows past 1k lines.",
+    "MongoDB ObjectId is correctly excluded via _*_dto helpers — no ObjectId leaks in responses.",
+    "Emergent Object Storage integration handles stale storage_key with a 503 retry; good.",
+    "Idempotency on POST /api/orders uses a unique sparse index on client_ref + application-level check — correctly returns the existing order.",
+    "Admin gating (require_admin) applied consistently to product mutations, order status/notes, dashboard, customers, and settings PUT.",
+    "Order isolation for customers is enforced in both list_orders (query filter) and get_order (customer_id equality check → 403)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "not tested"},
+  "seed_data_creation": "Two ephemeral TEST_ customers were registered during the run (used for register + isolation tests). Several TEST_ products/orders were created and cleaned up where possible. Test-created orders remain in DB for auditability (order_number auto-increments).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base URL comes from EXPO_PUBLIC_BACKEND_URL. Tests use pytest-xdist (parallel). Fresh customer B is registered per session to validate order isolation. If DB is wiped, backend startup re-seeds admin, demo customer, settings, and 5 demo products, so the suite is safe to re-run. Frontend tests were intentionally skipped per review_request (backend only).",
+  "rca_of_issue": "N/A — no failures."
+}

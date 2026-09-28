@@ -1,0 +1,122 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { api } from "@/src/api";
+import { colors, radius, spacing } from "@/src/theme";
+import { Button } from "@/src/button";
+import { StatusChip } from "../home";
+import { useCart } from "@/src/cart";
+import { useToast } from "@/src/toast";
+
+export default function CustomerOrderDetail() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const cart = useCart();
+
+  const order = useQuery({ queryKey: ["order", id], queryFn: () => api.getOrder(id!) });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.getSettings() });
+  const showPrice = settings.data?.show_prices_to_customers ?? true;
+
+  const o = order.data;
+
+  const reorder = async () => {
+    if (!o) return;
+    // Fetch product to get image_url etc.
+    for (const it of o.items) {
+      try {
+        const p = await api.getProduct(it.product_id);
+        cart.add({
+          product_id: p.id, product_name: p.name, sku: p.sku,
+          variation: it.variation, quantity: it.quantity, unit: p.unit,
+          unit_price: it.unit_price, image_url: p.image_url,
+        });
+      } catch {}
+    }
+    toast.show("Items added to cart", "success");
+    router.push("/customer/cart");
+  };
+
+  if (!o) return <View style={{ flex: 1, backgroundColor: colors.surface }} />;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        <Pressable testID="cust-order-back" onPress={() => router.back()}><Text style={{ color: colors.brandPrimary }}>← Back</Text></Pressable>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          <Text style={styles.title}>{o.order_number}</Text>
+          <StatusChip status={o.status} />
+        </View>
+        <Text style={styles.meta}>Placed {new Date(o.created_at).toLocaleString()}</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, paddingBottom: 120 }}>
+        {!!o.customer_facing_notes && (
+          <View style={[styles.card, { backgroundColor: colors.brandTertiary }]}>
+            <Text style={{ color: colors.onBrandTertiary, fontWeight: "600", marginBottom: 4 }}>Message from The Kitchen Atelier</Text>
+            <Text style={{ color: colors.onBrandTertiary }}>{o.customer_facing_notes}</Text>
+          </View>
+        )}
+
+        <View style={styles.card}>
+          <Text style={styles.section}>Items</Text>
+          {o.items.map((it, idx) => (
+            <View key={idx} style={styles.itemRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.itemName}>{it.product_name}{it.variation ? ` — ${it.variation}` : ""}</Text>
+                <Text style={styles.itemMeta}>{it.sku} · {it.quantity} × {it.unit}</Text>
+              </View>
+              {showPrice && <Text style={styles.itemPrice}>RM {it.line_total.toFixed(2)}</Text>}
+            </View>
+          ))}
+          {showPrice && (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalValue}>RM {o.total_amount.toFixed(2)}</Text>
+            </View>
+          )}
+        </View>
+
+        {!!o.notes && (
+          <View style={styles.card}>
+            <Text style={styles.section}>My notes</Text>
+            <Text>{o.notes}</Text>
+          </View>
+        )}
+
+        <View style={styles.card}>
+          <Text style={styles.section}>Status history</Text>
+          {o.status_history.map((h: any, idx: number) => (
+            <View key={idx} style={{ paddingVertical: 6 }}>
+              <Text style={{ color: colors.onSurface, fontWeight: "500" }}>
+                {h.from ? `${h.from} → ` : ""}{h.to}
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{new Date(h.at).toLocaleString()}</Text>
+              {!!h.note && <Text style={{ color: colors.onSurface, fontSize: 13, marginTop: 2 }}>{h.note}</Text>}
+            </View>
+          ))}
+        </View>
+
+        <Button testID="reorder-button" title="Reorder" onPress={reorder} variant="secondary" />
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  title: { fontSize: 20, fontWeight: "600", color: colors.onSurface },
+  meta: { color: colors.muted, marginTop: 2 },
+  card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
+  section: { fontWeight: "600", color: colors.onSurface, marginBottom: 6, fontSize: 15 },
+  itemRow: { flexDirection: "row", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  itemName: { color: colors.onSurface, fontWeight: "500" },
+  itemMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  itemPrice: { color: colors.brandPrimary, fontWeight: "600" },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8, paddingTop: 8 },
+  totalLabel: { fontWeight: "600", color: colors.onSurface, fontSize: 16 },
+  totalValue: { color: colors.brandPrimary, fontWeight: "700", fontSize: 18 },
+});
